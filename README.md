@@ -6,18 +6,37 @@
 # bitstream: bit queue
 Copyright © 2024 Bart Massey (Version 0.1.0)
 
-A [BitStream] is a queue that you can stuff bits into, and then later
+A `BitStream` is a queue that you can stuff bits into and
 extract bits out of, in (almost) arbitrary-length chunks.
 
-For example
+Bits are inserted and removed LSB…MSB (little-endian).
 
+## Examples
+
+Consider this sequence of operations:
+
+```
     make a bs
     0010 -> bs
-    0001000001 -> bs
-    take 6 from bs (-> 001000)
-    take 7 from bs (-> 0100000)
+    1001000001 -> bs
+    take 6 from bs (-> 010010)
+    take 7 from bs (-> 0010000)
     take 1 from bs (-> 1)
     bs is empty (true)
+```
+
+The code would look something like this:
+
+```rust
+let mut bs = bitstream::BitStream::default();
+bs.insert(0b0010_u8, 4);
+bs.insert(0b1001000001_u16, 10);
+assert_eq!(0b010010, bs.extract(6).unwrap());
+assert_eq!(0b0010000, bs.extract(7).unwrap());
+assert_eq!(0b1, bs.extract(1).unwrap());
+assert!(bs.is_empty());
+```
+
 
 # License
 

@@ -1,50 +1,85 @@
 /*!
-A [BitStream] is a queue that you can stuff bits into, and then later
+A `BitStream` is a queue that you can stuff bits into and
 extract bits out of, in (almost) arbitrary-length chunks.
 
-For example
+Bits are inserted and removed LSB…MSB (little-endian).
 
+# Examples
+
+Consider this sequence of operations:
+
+```text
     make a bs
     0010 -> bs
-    0001000001 -> bs
-    take 6 from bs (-> 001000)
-    take 7 from bs (-> 0100000)
+    1001000001 -> bs
+    take 6 from bs (-> 010010)
+    take 7 from bs (-> 0010000)
     take 1 from bs (-> 1)
     bs is empty (true)
+```
+
+The code would look something like this:
+
+```
+let mut bs = bitstream::BitStream::default();
+bs.insert(0b0010_u8, 4);
+bs.insert(0b1001000001_u16, 10);
+assert_eq!(0b010010, bs.extract(6).unwrap());
+assert_eq!(0b0010000, bs.extract(7).unwrap());
+assert_eq!(0b1, bs.extract(1).unwrap());
+assert!(bs.is_empty());
+```
+
 */
 
 use std::collections::VecDeque;
 
 /// The bitstream is built of these chunks.
+///
+/// This type sets the limit on the number of bits that can
+/// be inserted or extracted in a single operation.
 pub type Chunk = u64;
 
+/// The bitstream. See module docs for details.
 #[derive(Debug, Clone, Default)]
 pub struct BitStream(Bits);
 
 impl BitStream {
+    /// Take this bitstream, replacing it with an empty
+    /// bitstream.
     pub fn take(&mut self) -> Self {
         let contents = self.0.take();
         Self(contents)
     }
 
+    /// Insert the least-significant `len` bits of `x` into
+    /// the bitstream.
     pub fn insert<T: Into<Chunk>>(&mut self, x: T, len: usize) {
         self.0.insert(x, len);
     }
 
+    /// Extract `len` bits from the bitstream and return
+    /// them as the least-significant bits of the result.
+    /// If `len` is larger than the number of bits available
+    /// in the bitstream, instead return `None` (and do not
+    /// remove any bits).
     pub fn extract(&mut self, len: usize) -> Option<Chunk> {
         self.0.extract(len)
     }
 
+    /// Number of bits available in the bitstream.
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
+    /// The bitstream contains no bits.
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 }
 
-/// Number of bits in a chunk.
+/// Number of bits in a chunk. This is a convenience for
+/// working with the public [Chunk] type.
 pub const NCHUNK: usize = 8 * std::mem::size_of::<Chunk>();
 
 /// Bitmask of `len` bits.
@@ -289,18 +324,18 @@ fn test_bits_extract() {
     let mut bs = Bits::default();
     let mut len = 0;
     for _ in 0..80 {
-        bs.insert(0b010u8, 3);
+        bs.insert(0b011u8, 3);
         len += 3;
     }
 
     for _ in 0..79 {
         let bits = bs.extract(3).unwrap();
-        assert_eq!(bits, 0b010);
+        assert_eq!(bits, 0b011);
         len -= 3;
         assert_eq!(bs.len(), len);
         bs.check_invariant();
     }
-    assert_eq!(0b10, bs.extract(2).unwrap());
+    assert_eq!(0b11, bs.extract(2).unwrap());
     assert!(!bs.is_empty());
     assert_eq!(0b0, bs.extract(1).unwrap());
     assert!(bs.is_empty());
