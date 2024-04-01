@@ -1,7 +1,13 @@
-# bitstream: bit stream accumulate / dump
+![Maintenance](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg)
+[![crates-io](https://img.shields.io/crates/v/bitstream.svg)](https://crates.io/crates/bitstream)
+[![api-docs](https://docs.rs/bitstream/badge.svg)](https://docs.rs/bitstream)
+[![dependency-status](https://deps.rs/repo/github/BartMassey/bitstream/status.svg)](https://deps.rs/repo/github/BartMassey/bitstream)
 
-Need a datatype that you can stuff bits into, and then later
-extract bits out of, in arbitrary-length chunks.
+# bitstream: bit queue
+Copyright © 2024 Bart Massey (Version 0.1.0)
+
+A [BitStream] is a queue that you can stuff bits into, and then later
+extract bits out of, in (almost) arbitrary-length chunks.
 
 For example
 
@@ -13,27 +19,7 @@ For example
     take 1 from bs (-> 1)
     bs is empty (true)
 
-## Questions
+# License
 
-* Should the bitstream be arbitrary (growing) size,
-  or should it have a maximum capacity?
-
-* What should the datatypes passed in and out look like?
-
-* What methods should I have?
-
-* How much do I care about performance?
-
-## Hints
-
-* Look to implement standard Rust datatype methods such as
-  `len()`, `is_empty()`, etc.
-  
-* Use `Option` and `Result` wisely.
-
-* If you want, use "const generics". But probably a `Vec` is
-  easier.
-
-* Implement sensible traits: for example `Debug`, `Clone`.
-
-* You may want an `Error` type.
+This work is licensed under the "MIT License". Please see the file
+`LICENSE.txt` in this distribution for license terms.

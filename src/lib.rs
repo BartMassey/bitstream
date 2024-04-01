@@ -1,3 +1,18 @@
+/*!
+A [BitStream] is a queue that you can stuff bits into, and then later
+extract bits out of, in (almost) arbitrary-length chunks.
+
+For example
+
+    make a bs
+    0010 -> bs
+    0001000001 -> bs
+    take 6 from bs (-> 001000)
+    take 7 from bs (-> 0100000)
+    take 1 from bs (-> 1)
+    bs is empty (true)
+*/
+
 use std::collections::VecDeque;
 
 /// The bitstream is built of these chunks.
