@@ -30,9 +30,27 @@ assert_eq!(0b1, bs.extract(1).unwrap());
 assert!(bs.is_empty());
 ```
 
+# Features
+
+The feature `std` is enabled by default. Disable it to
+compile this as a `no_std` crate. This will limit the stream
+buffer to [NCHUNK] bits.
+
 */
 
+// https://users.rust-lang.org/t/no-std-with-feature-flag-two-ways/90139
+#![cfg_attr(not(feature = "std"), no_std)]
+
+#[cfg(feature = "std")]
 use std::collections::VecDeque;
+
+#[cfg(not(feature = "std"))]
+#[derive(Debug, Clone, Copy)]
+/// BitStream operation failure.
+pub enum BitStreamError {
+    /// Insert overflowed the BitStream.
+    Overflow,
+}
 
 /// The bitstream is built of these chunks.
 ///
@@ -52,10 +70,20 @@ impl BitStream {
         Self(contents)
     }
 
+    #[cfg(feature = "std")]
     /// Insert the least-significant `len` bits of `x` into
     /// the bitstream.
     pub fn insert<T: Into<Chunk>>(&mut self, x: T, len: usize) {
         self.0.insert(x, len);
+    }
+
+    #[cfg(not(feature = "std"))]
+    /// Insert the least-significant `len` bits of `x` into
+    /// the bitstream. Returns [BitStreamError::Overflow] if
+    /// the bitstream would grow to be bigger than two chunks,
+    /// in which case no insert is performed.
+    pub fn insert<T: Into<Chunk>>(&mut self, x: T, len: usize) -> Result<(), BitStreamError> {
+        self.0.insert(x, len)
     }
 
     /// Extract `len` bits from the bitstream and return
@@ -80,7 +108,7 @@ impl BitStream {
 
 /// Number of bits in a chunk. This is a convenience for
 /// working with the public [Chunk] type.
-pub const NCHUNK: usize = 8 * std::mem::size_of::<Chunk>();
+pub const NCHUNK: usize = 8 * core::mem::size_of::<Chunk>();
 
 /// Bitmask of `len` bits.
 fn mask(len: usize) -> Chunk {
@@ -114,6 +142,7 @@ enum Bits {
     Empty,
     /// Queue is length one, so back and front are the same.
     Single(End),
+    #[cfg(feature = "std")]
     /// Queue is length two+, so back and front are different.
     Multiple {
         back: End,
@@ -123,18 +152,28 @@ enum Bits {
 }
 use Bits::*;
 
+#[cfg(feature = "std")]
+type InsertResult = ();
+
+#[cfg(not(feature = "std"))]
+type InsertResult = Result<(), BitStreamError>;
+
 impl Bits {
     fn take(&mut self) -> Self {
-        std::mem::replace(self, Empty)
+        core::mem::replace(self, Empty)
     }
 
-    fn insert<T: Into<Chunk>>(&mut self, x: T, len: usize) {
-        assert!(len <= 8 * std::mem::size_of::<T>());
+    fn insert<T: Into<Chunk>>(&mut self, x: T, len: usize) -> InsertResult {
+        assert!(len <= 8 * core::mem::size_of::<T>());
         if len == 0 {
+            #[cfg(feature = "std")]
             return;
+            #[cfg(not(feature = "std"))]
+            return Ok(());
         }
         let bits = x.into() & mask(len);
 
+        #[cfg(feature = "std")]
         let insert_with_carry = |end: &mut End| -> Option<Chunk> {
             if len + end.len < NCHUNK {
                 end.bits |= bits << end.len;
@@ -150,6 +189,7 @@ impl Bits {
             }
         };
 
+        #[cfg(feature = "std")]
         let to_multiple = |end: End, carry: Chunk| -> Self {
             let back = end;
             let mut q = VecDeque::with_capacity(1);
@@ -158,7 +198,8 @@ impl Bits {
             Multiple { back, q, front }
         };
 
-        let promote = |mut end: End| -> Self {
+        #[cfg(feature = "std")]
+        let promote = |mut end: End| {
             match insert_with_carry(&mut end) {
                 None => Single(end),
                 Some(carry) => to_multiple(end, carry),
@@ -166,7 +207,9 @@ impl Bits {
         };
 
         let value = self.take();
-        *self = match value {
+
+        #[cfg(feature = "std")]
+        let new_value = match value {
             Empty => {
                 let end = End::default();
                 promote(end)
@@ -184,6 +227,27 @@ impl Bits {
                 }
             },
         };
+
+        #[cfg(not(feature = "std"))]
+        let new_value = match value {
+            Empty => {
+                Single(End { len, bits })
+            }
+            Single(mut end) => {
+                if len + end.len <= NCHUNK {
+                    end.bits |= bits << end.len as u32;
+                    end.len += len;
+                    Single(end)
+                } else {
+                    return Err(BitStreamError::Overflow);
+                }
+            }
+        };
+
+        *self = new_value;
+
+        #[cfg(not(feature = "std"))]
+        Ok(())
     }
 
     fn extract(&mut self, len: usize) -> Option<Chunk> {
@@ -201,6 +265,7 @@ impl Bits {
                         Single(end)
                     }
                 }
+                #[cfg(feature = "std")]
                 Multiple {
                     back,
                     mut q,
@@ -241,6 +306,7 @@ impl Bits {
                     (Single(end), None)
                 }
             }
+            #[cfg(feature = "std")]
             Multiple {
                 back,
                 mut q,
@@ -282,6 +348,7 @@ impl Bits {
         match self {
             Empty => 0,
             Single(end) => end.len,
+            #[cfg(feature = "std")]
             Multiple { back, q, front } => back.len + q.len() * NCHUNK + front.len,
         }
     }
@@ -295,6 +362,7 @@ impl Bits {
         match self {
             Empty => (),
             Single(end) => end.check_invariant(),
+            #[cfg(feature = "std")]
             Multiple { back, front, .. } => {
                 back.check_invariant();
                 front.check_invariant();
@@ -303,41 +371,66 @@ impl Bits {
     }
 }
 
-#[test]
-fn test_bits_insert() {
-    let mut bs = Bits::default();
-    bs.insert(0b10010u8, 5);
-    assert_eq!(bs.len(), 5);
-    bs.check_invariant();
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[cfg(feature = "std")]
+    fn insert<T: Into<Chunk>>(bs: &mut Bits, bits: T, len: usize) {
+        bs.insert(bits, len);
+    }
 
-    let mut len = 5;
-    for _ in 0..40 {
-        bs.insert(0b01110u8, 5);
-        len += 5;
-        assert_eq!(bs.len(), len);
+    #[cfg(not(feature = "std"))]
+    fn insert<T: Into<Chunk>>(bs: &mut Bits, bits: T, len: usize) {
+        bs.insert(bits, len).unwrap();
+    }
+
+    #[test]
+    fn test_bits_insert() {
+        let mut bs = Bits::default();
+        insert(&mut bs, 0b10010u8, 5);
+        assert_eq!(bs.len(), 5);
         bs.check_invariant();
-    }
-}
 
-#[test]
-fn test_bits_extract() {
-    let mut bs = Bits::default();
-    let mut len = 0;
-    for _ in 0..80 {
-        bs.insert(0b011u8, 3);
-        len += 3;
+        #[cfg(feature = "std")]
+        const M: usize = 40;
+        #[cfg(not(feature = "std"))]
+        const M: usize = 11;
+
+        let mut len = 5;
+        for _ in 0..M {
+            insert(&mut bs, 0b01110u8, 5);
+            len += 5;
+            assert_eq!(bs.len(), len);
+            bs.check_invariant();
+        }
     }
 
-    for _ in 0..79 {
-        let bits = bs.extract(3).unwrap();
-        assert_eq!(bits, 0b011);
-        len -= 3;
-        assert_eq!(bs.len(), len);
-        bs.check_invariant();
+    #[test]
+    fn test_bits_extract() {
+        #[cfg(feature = "std")]
+        const M: usize = 80;
+        #[cfg(not(feature = "std"))]
+        const M: usize = 20;
+
+        let mut bs = Bits::default();
+        let mut len = 0;
+        for _ in 0..M {
+            insert(&mut bs, 0b011u8, 3);
+            len += 3;
+        }
+
+        for _ in 0..M - 1 {
+            let bits = bs.extract(3).unwrap();
+            assert_eq!(bits, 0b011);
+            len -= 3;
+            assert_eq!(bs.len(), len);
+            bs.check_invariant();
+        }
+        assert_eq!(0b11, bs.extract(2).unwrap());
+        assert!(!bs.is_empty());
+        assert_eq!(0b0, bs.extract(1).unwrap());
+        assert!(bs.is_empty());
+        assert!(bs.extract(1).is_none());
     }
-    assert_eq!(0b11, bs.extract(2).unwrap());
-    assert!(!bs.is_empty());
-    assert_eq!(0b0, bs.extract(1).unwrap());
-    assert!(bs.is_empty());
-    assert!(bs.extract(1).is_none());
 }

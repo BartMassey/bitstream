@@ -37,6 +37,12 @@ assert_eq!(0b1, bs.extract(1).unwrap());
 assert!(bs.is_empty());
 ```
 
+## Features
+
+The feature `std` is enabled by default. Disable it to
+compile this as a `no_std` crate. This will limit the stream
+buffer to [NCHUNK] bits.
+
 
 # License
 
